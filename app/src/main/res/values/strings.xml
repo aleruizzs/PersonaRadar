@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Persona Radar</string>
+    <string name="notification_channel_name">Servicio de Detección Persona</string>
+    <string name="notification_channel_desc">Canal para mantener activo el radar de voz de Persona</string>
+    <string name="notification_title">Persona Radar Activo</string>
+    <string name="notification_listening">Escuchando el entorno en busca de la palabra clave...</string>
+    <string name="notification_triggered">¡PERSONA DETECTADA! Reproduciendo Last Surprise...</string>
+</resources>
