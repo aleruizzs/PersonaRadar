@@ -1,0 +1,28 @@
+# Gradle
+.gradle/
+build/
+*/build/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+.shelf/
+
+# Configuración local de SDK y firmas (NUNCA subir)
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Binarios y paquetes compilados
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+
+# Sistema operativo
+.DS_Store
+Thumbs.db

@@ -1,4 +1,4 @@
-$sdkRoot = "C:\Users\Ale\AppData\Local\Android\Sdk"
+$sdkRoot = "C:\Users\Alejandro\AppData\Local\Android\Sdk"
 $licDir = Join-Path $sdkRoot "licenses"
 New-Item -ItemType Directory -Force -Path $licDir | Out-Null
 
@@ -20,7 +20,11 @@ $armLicense = @"
 Set-Content -Path (Join-Path $licDir "android-sdk-arm-dbt-license") -Value $armLicense -NoNewline
 
 Write-Host "Licenses written. Installing SDK packages..."
-$env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-17.0.20.8-hotspot"
+$env:JAVA_HOME = "C:\Program Files\JetBrains\PyCharm 2025.3.4\jbr"
 $sdkmanager = Join-Path $sdkRoot "cmdline-tools\latest\bin\sdkmanager.bat"
+if (-not (Test-Path $sdkmanager)) {
+    $sdkmanager = Join-Path $sdkRoot "cmdline-tools\latest\sdkmanager.bat"
+}
 & $sdkmanager --sdk_root="$sdkRoot" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 Write-Host "SDK Packages Installed Successfully!"
+

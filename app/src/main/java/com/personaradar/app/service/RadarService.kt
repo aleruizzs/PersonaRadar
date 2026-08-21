@@ -43,7 +43,6 @@ class RadarService : Service(), RecognitionListener {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val serviceScope = CoroutineScope(Dispatchers.Main)
-    private var resetStateJob: Job? = null
 
     private var isListeningLoopActive = false
     private var restartAttemptCount = 0
@@ -58,7 +57,9 @@ class RadarService : Service(), RecognitionListener {
         const val ACTION_STOP_MUSIC = "com.personaradar.action.STOP_MUSIC"
         const val ACTION_TEST_SOUND = "com.personaradar.action.TEST_SOUND"
         const val ACTION_UPDATE_URI = "com.personaradar.action.UPDATE_URI"
+        const val ACTION_UPDATE_VOLUME = "com.personaradar.action.UPDATE_VOLUME"
         const val EXTRA_AUDIO_URI = "extra_audio_uri"
+        const val EXTRA_VOLUME_PERCENT = "extra_volume_percent"
 
         private val _radarState = MutableStateFlow(RadarState.INACTIVE)
         val radarState: StateFlow<RadarState> = _radarState.asStateFlow()
@@ -66,9 +67,14 @@ class RadarService : Service(), RecognitionListener {
         private val _isServiceRunning = MutableStateFlow(false)
         val isServiceRunning: StateFlow<Boolean> = _isServiceRunning.asStateFlow()
 
-        fun startService(context: Context, audioUri: Uri? = null) {
+        private val _targetVolumePercent = MutableStateFlow(100)
+        val targetVolumePercent: StateFlow<Int> = _targetVolumePercent.asStateFlow()
+
+        fun startService(context: Context, audioUri: Uri? = null, volumePercent: Int = 100) {
+            _targetVolumePercent.value = volumePercent
             val intent = Intent(context, RadarService::class.java).apply {
                 action = ACTION_START
+                putExtra(EXTRA_VOLUME_PERCENT, volumePercent)
                 if (audioUri != null) {
                     putExtra(EXTRA_AUDIO_URI, audioUri.toString())
                 }
@@ -108,12 +114,23 @@ class RadarService : Service(), RecognitionListener {
             }
             context.startService(intent)
         }
+
+        fun updateTargetVolume(context: Context, percent: Int) {
+            _targetVolumePercent.value = percent
+            val intent = Intent(context, RadarService::class.java).apply {
+                action = ACTION_UPDATE_VOLUME
+                putExtra(EXTRA_VOLUME_PERCENT, percent)
+            }
+            context.startService(intent)
+        }
     }
 
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "onCreate")
-        soundManager = SoundManager(this)
+        soundManager = SoundManager(this).apply {
+            targetVolumePercent = _targetVolumePercent.value
+        }
         createNotificationChannel()
         acquireWakeLock()
         initSpeechRecognizer()
@@ -126,6 +143,12 @@ class RadarService : Service(), RecognitionListener {
         val uriString = intent?.getStringExtra(EXTRA_AUDIO_URI)
         if (uriString != null) {
             soundManager?.customAudioUri = Uri.parse(uriString)
+        }
+
+        val volume = intent?.getIntExtra(EXTRA_VOLUME_PERCENT, -1) ?: -1
+        if (volume in 0..100) {
+            _targetVolumePercent.value = volume
+            soundManager?.targetVolumePercent = volume
         }
 
         when (action) {
@@ -143,16 +166,18 @@ class RadarService : Service(), RecognitionListener {
             }
             ACTION_STOP_MUSIC -> {
                 soundManager?.stopSound()
-                if (isListeningLoopActive) {
-                    _radarState.value = RadarState.LISTENING
-                    updateNotification(RadarState.LISTENING)
+                if (_isServiceRunning.value) {
+                    startContinuousListening()
                 }
             }
             ACTION_TEST_SOUND -> {
+                stopContinuousListening()
                 _radarState.value = RadarState.TRIGGERED
                 updateNotification(RadarState.TRIGGERED)
                 soundManager?.triggerPersonaSurprise {
-                    scheduleStateResetToListening()
+                    if (_isServiceRunning.value) {
+                        startContinuousListening()
+                    }
                 }
             }
             ACTION_UPDATE_URI -> {
@@ -160,6 +185,11 @@ class RadarService : Service(), RecognitionListener {
                     soundManager?.customAudioUri = Uri.parse(uriString)
                 } else {
                     soundManager?.customAudioUri = null
+                }
+            }
+            ACTION_UPDATE_VOLUME -> {
+                if (volume in 0..100) {
+                    soundManager?.targetVolumePercent = volume
                 }
             }
         }
@@ -296,6 +326,7 @@ class RadarService : Service(), RecognitionListener {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "es-ES")
                     putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, "es-ES")
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                    putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
                     putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
                     // Optimizations for continuous listening
@@ -347,47 +378,49 @@ class RadarService : Service(), RecognitionListener {
         }, delayMs)
     }
 
+    private fun stripAccents(input: String): String {
+        val normalized = java.text.Normalizer.normalize(input, java.text.Normalizer.Form.NFD)
+        return normalized.replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+    }
+
     private fun processTranscribedText(texts: List<String>?) {
         if (texts.isNullOrEmpty()) return
 
         for (text in texts) {
-            val lower = text.lowercase(Locale.getDefault())
-            Log.d(TAG, "Audio transcrito: \"$lower\"")
+            val rawLower = text.lowercase(Locale.getDefault())
+            val normalized = stripAccents(rawLower)
+            Log.d(TAG, "Audio transcrito: \"$rawLower\" (Normalizado: \"$normalized\")")
 
-            // Comprobación de la palabra clave "persona" o variaciones fonéticas comunes
-            if (lower.contains("persona") || lower.contains("personaje") || lower.contains("personas")) {
-                Log.i(TAG, "¡¡¡PALABRA CLAVE DETECTADA: $lower !!!")
+            // Comprobación de la palabra clave "persona" o "personas"
+            if (normalized.contains("persona") || normalized.contains("personas")) {
+                Log.i(TAG, "¡¡¡PALABRA CLAVE DETECTADA: $normalized !!!")
                 handlePersonaDetected()
                 break
             }
         }
     }
 
+
     private fun handlePersonaDetected() {
+        // Pausar la escucha activa mientras la canción se reproduce para evitar bucles del altavoz
+        stopContinuousListening()
         _radarState.value = RadarState.TRIGGERED
         updateNotification(RadarState.TRIGGERED)
 
         val triggered = soundManager?.triggerPersonaSurprise {
-            scheduleStateResetToListening()
+            // Al terminar la canción por completo, se reactiva la escucha inmediatamente
+            if (_isServiceRunning.value) {
+                startContinuousListening()
+            }
         } ?: false
 
         if (!triggered) {
-            // Si estaba en cooldown, regresamos el estado visual a LISTENING
-            _radarState.value = RadarState.LISTENING
-            updateNotification(RadarState.LISTENING)
-        }
-    }
-
-    private fun scheduleStateResetToListening() {
-        resetStateJob?.cancel()
-        resetStateJob = serviceScope.launch {
-            delay(SoundManager.COOLDOWN_DURATION_MS)
-            if (isListeningLoopActive) {
-                _radarState.value = RadarState.LISTENING
-                updateNotification(RadarState.LISTENING)
+            if (_isServiceRunning.value) {
+                startContinuousListening()
             }
         }
     }
+
 
     // --- RecognitionListener Callbacks & Watchdog Auto-Restart ---
 
@@ -460,7 +493,7 @@ class RadarService : Service(), RecognitionListener {
         Log.d(TAG, "onDestroy")
         isListeningLoopActive = false
         mainHandler.removeCallbacksAndMessages(null)
-        resetStateJob?.cancel()
+
 
         try {
             speechRecognizer?.destroy()

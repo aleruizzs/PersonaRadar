@@ -42,6 +42,8 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -74,10 +76,12 @@ import com.personaradar.app.ui.theme.PersonaYellow
 fun RadarScreen(
     isServiceRunning: Boolean,
     radarState: RadarState,
+    targetVolumePercent: Int,
     customAudioName: String?,
     onToggleRadar: () -> Unit,
     onStopMusic: () -> Unit,
     onTestSound: () -> Unit,
+    onVolumeChange: (Int) -> Unit,
     onSelectAudio: () -> Unit,
     onResetAudio: () -> Unit,
     modifier: Modifier = Modifier
@@ -144,12 +148,12 @@ fun RadarScreen(
             // HEADER: Persona 5 Stylized Banner
             PersonaHeader()
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             // RADAR STATUS BADGE
             StatusBadge(radarState = radarState, isServiceRunning = isServiceRunning)
 
-            Spacer(modifier = Modifier.height(36.dp))
+            Spacer(modifier = Modifier.height(28.dp))
 
             // GIANT CENTER RADAR BUTTON
             GiantRadarButton(
@@ -160,7 +164,15 @@ fun RadarScreen(
                 onClick = onToggleRadar
             )
 
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // TARGET VOLUME SLIDER CARD
+            VolumeControlCard(
+                targetVolumePercent = targetVolumePercent,
+                onVolumeChange = onVolumeChange
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
 
             // ACTION BUTTONS: Stop Music & Test Sound
             ActionButtonsRow(
@@ -168,7 +180,7 @@ fun RadarScreen(
                 onTestSound = onTestSound
             )
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             // AUDIO SOURCE SELECTOR CARD
             AudioSelectionCard(
@@ -186,6 +198,7 @@ fun RadarScreen(
         }
     }
 }
+
 
 @Composable
 private fun PersonaHeader() {
@@ -396,6 +409,93 @@ private fun GiantRadarButton(
                     textAlign = TextAlign.Center
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun VolumeControlCard(
+    targetVolumePercent: Int,
+    onVolumeChange: (Int) -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.5.dp, PersonaRed, CutCornerShape(topStart = 12.dp, bottomEnd = 12.dp)),
+        shape = CutCornerShape(topStart = 12.dp, bottomEnd = 12.dp),
+        colors = CardDefaults.cardColors(containerColor = PersonaGraphite)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                        contentDescription = null,
+                        tint = PersonaYellow,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "VOLUMEN DE DISPARO",
+                        color = PersonaWhite,
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp
+                        )
+                    )
+                }
+
+                // Large numeric visor badge
+                Box(
+                    modifier = Modifier
+                        .rotate(-2f)
+                        .background(PersonaRed, CutCornerShape(4.dp))
+                        .border(1.dp, PersonaWhite, CutCornerShape(4.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "$targetVolumePercent%",
+                        color = PersonaWhite,
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Slider(
+                value = targetVolumePercent.toFloat(),
+                onValueChange = { onVolumeChange(it.toInt()) },
+                valueRange = 0f..100f,
+                colors = SliderDefaults.colors(
+                    thumbColor = PersonaYellow,
+                    activeTrackColor = PersonaRed,
+                    inactiveTrackColor = PersonaDarkGray,
+                    activeTickColor = PersonaYellow
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = "Nivel de audio que se forzará al detectar \"persona\"",
+                color = PersonaMutedText,
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.sp),
+                textAlign = TextAlign.Start
+            )
         }
     }
 }

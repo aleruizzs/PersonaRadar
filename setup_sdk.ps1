@@ -1,4 +1,4 @@
-$sdkRoot = "C:\Users\Ale\AppData\Local\Android\Sdk"
+$sdkRoot = "C:\Users\Alejandro\AppData\Local\Android\Sdk"
 $toolsZip = Join-Path $env:TEMP "cmdline-tools.zip"
 New-Item -ItemType Directory -Force -Path $sdkRoot | Out-Null
 
@@ -17,10 +17,11 @@ Move-Item -Path (Join-Path $tmpDir "cmdline-tools\*") -Destination $dest -Force
 Remove-Item -Recurse -Force $tmpDir
 Remove-Item -Force $toolsZip
 
-$env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-17.0.20.8-hotspot"
+$env:JAVA_HOME = "C:\Program Files\JetBrains\PyCharm 2025.3.4\jbr"
 $sdkmanager = Join-Path $dest "bin\sdkmanager.bat"
 Write-Host "Accepting licenses..."
 cmd.exe /c "echo y | `"$sdkmanager`" --sdk_root=`"$sdkRoot`" --licenses"
 Write-Host "Installing platform-tools, platforms;android-34, build-tools;34.0.0..."
 & $sdkmanager --sdk_root="$sdkRoot" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 Write-Host "Android SDK Setup Complete!"
+

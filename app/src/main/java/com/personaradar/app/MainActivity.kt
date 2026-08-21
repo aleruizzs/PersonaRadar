@@ -37,6 +37,7 @@ class MainActivity : ComponentActivity() {
             PersonaRadarTheme {
                 val isServiceRunning by RadarService.isServiceRunning.collectAsState()
                 val radarState by RadarService.radarState.collectAsState()
+                val targetVolumePercent by RadarService.targetVolumePercent.collectAsState()
 
                 // Permission launcher for RECORD_AUDIO and POST_NOTIFICATIONS
                 val permissionLauncher = rememberLauncherForActivityResult(
@@ -45,7 +46,7 @@ class MainActivity : ComponentActivity() {
                     val audioGranted = permissions[Manifest.permission.RECORD_AUDIO] ?: false
 
                     if (audioGranted) {
-                        RadarService.startService(this, customAudioUri)
+                        RadarService.startService(this, customAudioUri, targetVolumePercent)
                         Toast.makeText(this, "Radar activado - Escuchando...", Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(
@@ -82,6 +83,7 @@ class MainActivity : ComponentActivity() {
                     RadarScreen(
                         isServiceRunning = isServiceRunning,
                         radarState = radarState,
+                        targetVolumePercent = targetVolumePercent,
                         customAudioName = customAudioFileName,
                         onToggleRadar = {
                             if (isServiceRunning) {
@@ -103,7 +105,7 @@ class MainActivity : ComponentActivity() {
                                 }
 
                                 if (audioGranted && notifGranted) {
-                                    RadarService.startService(this, customAudioUri)
+                                    RadarService.startService(this, customAudioUri, targetVolumePercent)
                                     Toast.makeText(this, "Radar activado - Escuchando...", Toast.LENGTH_SHORT).show()
                                 } else {
                                     val list = mutableListOf(Manifest.permission.RECORD_AUDIO)
@@ -120,7 +122,10 @@ class MainActivity : ComponentActivity() {
                         },
                         onTestSound = {
                             RadarService.testSound(this)
-                            Toast.makeText(this, "¡Probando sonido al 100% de volumen!", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, "¡Probando sonido al $targetVolumePercent% de volumen!", Toast.LENGTH_SHORT).show()
+                        },
+                        onVolumeChange = { volume ->
+                            RadarService.updateTargetVolume(this, volume)
                         },
                         onSelectAudio = {
                             audioPickerLauncher.launch("audio/*")
@@ -135,6 +140,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+
     }
 
     private fun getFileName(uri: Uri): String? {

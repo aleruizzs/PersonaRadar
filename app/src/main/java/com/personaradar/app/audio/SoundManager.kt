@@ -8,76 +8,47 @@ import android.net.Uri
 import android.os.PowerManager
 import android.util.Log
 import com.personaradar.app.R
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 class SoundManager(private val context: Context) {
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var mediaPlayer: MediaPlayer? = null
-    private val scope = CoroutineScope(Dispatchers.Main)
-    private var cooldownJob: Job? = null
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
-    private val _isInCooldown = MutableStateFlow(false)
-    val isInCooldown: StateFlow<Boolean> = _isInCooldown.asStateFlow()
+    var targetVolumePercent: Int = 100
+        set(value) {
+            field = value.coerceIn(0, 100)
+        }
 
     var customAudioUri: Uri? = null
+        set(value) {
+            field = value
+            preloadMediaPlayer()
+        }
+
+    private var isPrepared = false
+    var onCompletionCallback: (() -> Unit)? = null
 
     companion object {
         private const val TAG = "SoundManager"
-        const val COOLDOWN_DURATION_MS = 15_000L
+    }
+
+    init {
+        preloadMediaPlayer()
     }
 
     /**
-     * Dispara la reproducción al 100% de volumen multimedia con cooldown de 15s.
-     * Retorna true si se ejecutó el disparo, o false si estaba en cooldown.
+     * Instancia y prepara inmediatamente el MediaPlayer en memoria para latencia cero al disparar.
      */
     @Synchronized
-    fun triggerPersonaSurprise(onTriggered: (() -> Unit)? = null): Boolean {
-        if (_isInCooldown.value) {
-            Log.d(TAG, "Trigger omitido: en período de cooldown")
-            return false
-        }
-
-        Log.i(TAG, "¡DISPARANDO PERSONA! Maximizando volumen y reproduciendo música")
-        maximizeVolume()
-        playSound()
-        startCooldown()
-        onTriggered?.invoke()
-        return true
-    }
-
-    /**
-     * Sube el volumen del canal multimedia al 100% inmediatamente
-     */
-    fun maximizeVolume() {
-        try {
-            val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-            audioManager.setStreamVolume(
-                AudioManager.STREAM_MUSIC,
-                maxVolume,
-                AudioManager.FLAG_SHOW_UI
-            )
-            Log.d(TAG, "Volumen ajustado al máximo: $maxVolume")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error al ajustar el volumen multimedia", e)
-        }
-    }
-
-    /**
-     * Reproduce el archivo de audio (custom URI o recurso raw por defecto)
-     */
-    fun playSound() {
-        stopSound()
+    fun preloadMediaPlayer() {
+        releasePlayer()
         try {
             val player = MediaPlayer().apply {
                 setAudioAttributes(
@@ -97,31 +68,86 @@ class SoundManager(private val context: Context) {
                 }
 
                 setOnCompletionListener {
+                    Log.d(TAG, "Playback completado. Reseteando reproductor y notificando.")
                     _isPlaying.value = false
-                    releasePlayer()
+                    isPrepared = false
+                    preloadMediaPlayer()
+                    onCompletionCallback?.invoke()
                 }
 
                 setOnErrorListener { _, what, extra ->
-                    Log.e(TAG, "Error en MediaPlayer: what=$what, extra=$extra")
+                    Log.e(TAG, "Error en MediaPlayer preloaded: what=$what, extra=$extra")
                     _isPlaying.value = false
+                    isPrepared = false
                     releasePlayer()
                     true
                 }
 
                 prepare()
-                start()
             }
 
             mediaPlayer = player
-            _isPlaying.value = true
+            isPrepared = true
+            Log.d(TAG, "MediaPlayer precargado y preparado con éxito en memoria.")
         } catch (e: Exception) {
-            Log.e(TAG, "Error al reproducir audio", e)
-            _isPlaying.value = false
+            Log.e(TAG, "Error al precargar MediaPlayer", e)
+            isPrepared = false
         }
     }
 
     /**
-     * Detiene la música inmediatamente
+     * Dispara la reproducción instantánea con el volumen configurado.
+     * Retorna true si se ejecutó el disparo, o false si ya estaba sonando.
+     */
+    @Synchronized
+    fun triggerPersonaSurprise(onCompletion: (() -> Unit)? = null): Boolean {
+        if (_isPlaying.value) {
+            Log.d(TAG, "Trigger omitido: ya se encuentra reproduciendo audio")
+            return false
+        }
+
+        onCompletionCallback = onCompletion
+
+        Log.i(TAG, "¡DISPARANDO PERSONA! Aplicando volumen al $targetVolumePercent% y reproduciendo")
+        applyTargetVolume()
+
+        if (!isPrepared || mediaPlayer == null) {
+            Log.w(TAG, "MediaPlayer no estaba preparado. Intentando preparar antes de iniciar.")
+            preloadMediaPlayer()
+        }
+
+        try {
+            mediaPlayer?.start()
+            _isPlaying.value = true
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error al iniciar MediaPlayer prealmacenado", e)
+            preloadMediaPlayer()
+            return false
+        }
+    }
+
+    /**
+     * Calcula y aplica el volumen multimedia:
+     * targetVolume = (maxVolume * (volumenSeleccionado / 100f)).roundToInt()
+     */
+    fun applyTargetVolume() {
+        try {
+            val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            val targetVolume = (maxVolume * (targetVolumePercent / 100f)).roundToInt()
+            audioManager.setStreamVolume(
+                AudioManager.STREAM_MUSIC,
+                targetVolume,
+                AudioManager.FLAG_SHOW_UI
+            )
+            Log.d(TAG, "Volumen ajustado: $targetVolume / $maxVolume ($targetVolumePercent%)")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error al ajustar el volumen multimedia", e)
+        }
+    }
+
+    /**
+     * Detiene la música inmediatamente, vuelve a la posición inicial (precarga) y limpia estado
      */
     @Synchronized
     fun stopSound() {
@@ -134,8 +160,8 @@ class SoundManager(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error al detener MediaPlayer", e)
         } finally {
-            releasePlayer()
             _isPlaying.value = false
+            preloadMediaPlayer()
         }
     }
 
@@ -146,20 +172,13 @@ class SoundManager(private val context: Context) {
             Log.e(TAG, "Error al liberar MediaPlayer", e)
         }
         mediaPlayer = null
-    }
-
-    private fun startCooldown() {
-        _isInCooldown.value = true
-        cooldownJob?.cancel()
-        cooldownJob = scope.launch {
-            delay(COOLDOWN_DURATION_MS)
-            _isInCooldown.value = false
-            Log.d(TAG, "Cooldown finalizado")
-        }
+        isPrepared = false
     }
 
     fun release() {
+        onCompletionCallback = null
         stopSound()
-        cooldownJob?.cancel()
     }
 }
+
+
